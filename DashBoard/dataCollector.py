@@ -3,104 +3,86 @@ import requests
 import json
 import time
 
-SERIAL_PORT = 'COM6'  
+SERIAL_PORT = 'COM6'
 BAUD_RATE   = 115200
-
-# Spring 서버 엔드포인트
 SPRING_BASE_URL = 'http://localhost:8080/api/sensors/cups'
+# BIN_ID = 2
 
-def parse_line(line: str) -> dict:
+def parse_json_line(line: str):
     """
-    예시:
-      "weight=123.45,liquid_detected=true" 같은 문자열을 dict로 변환
+    주어진 문자열 라인을 JSON 객체로 파싱
     """
-    data = {}
     try:
-        parts = line.split(',')
-        for p in parts:
-            if '=' not in p:
-                continue
-            k, v = p.split('=', 1)
-            k = k.strip()
-            v = v.strip()
-            if not k:
-                continue
-
-            # 숫자 형태면 float/int로 변환
-            if v.replace('.', '', 1).isdigit():
-                if '.' in v:
-                    data[k] = float(v)
-                else:
-                    data[k] = int(v)
-            else:
-                data[k] = v # 문자열 값은 그대로 유지 (예: 'true', 'false')
-    except Exception as e:
-        print("parse error:", e, "line:", line)
-    return data
+        return json.loads(line)
+    except json.JSONDecodeError:
+        # JSON 디코딩 오류 발생 시 None 반환
+        return None
+    except Exception:
+        # 기타 예외 처리
+        return None
 
 def main():
-    # 시리얼 포트 열기
-    try:
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-        print(f"Opened serial port {SERIAL_PORT} @ {BAUD_RATE}")
-    except serial.SerialException as e:
-        print(f"Error opening serial port {SERIAL_PORT}: {e}")
-        return
+    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+    print(f"Opened {SERIAL_PORT}")
 
     while True:
         try:
-            raw = ser.readline()  # '\n' 기준 한 줄 읽기
+            raw = ser.readline()
             if not raw:
                 continue
 
+            # 바이트를 문자열로 디코딩하고 공백 제거
             line = raw.decode('utf-8', errors='ignore').strip()
             if not line:
                 continue
 
-            print("from STM32:", line)
+            print("STM32:", line)
 
-            payload = parse_line(line)
-            if not payload:
+            # JSON 시작 여부 확인 (디버그 메시지 등 필터링)
+            if not line.startswith("{"):
                 continue
 
-            if "weight" not in payload:
-                print("payload에 weight 값이 없음:", payload)
+            data = parse_json_line(line)
+            if not data:
+                print("Error: Invalid JSON format received.")
+                continue
+            
+            # JSON 데이터에서 "weight"를 추출
+            weight = data.get("weight")
+
+            # weight 필드가 없거나 0 이하인 경우 처리 방지
+            if weight is None or weight <= 0:
+                print(f"Skipping (weight <= 0 or missing): {weight}")
                 continue
 
-            weight_value = payload["weight"]
-            
-            # isliquid 값 계산
-            liquid_status_str = payload.get("liquid_detected", "false").lower()
-            isliquid_value = liquid_status_str == 'true'
+            # STM32에서 받은 데이터에 isLiquid = true 필드를 추가하여 payload 구성
+            data['isLiquid'] = True 
+            payload = data # 이제 payload는 {"weight": X, "isLiquid": true} 형태
 
-            # PATCH /api/sensors/cups
-            url = SPRING_BASE_URL 
+            url = SPRING_BASE_URL
             
-            # JSON body 구조
-            body = {
-                "weight": weight_value,
-                "isliquid": isliquid_value
-            }
-            
-            print(f"To Spring: {json.dumps(body)}")
-
-            resp = requests.patch(
-                url,
-                json=body,        # JSON 인코딩 및 Content-Type 설정
-                timeout=3
-            )
-
-            print(f"PATCH {url} -> {resp.status_code}")
-            # print(resp.text) # 디버깅용
+            # 물통 무게 업데이트
+            # STM32에서 받은 JSON 데이터 (data)를 그대로 payload로 사용
+            resp = requests.patch(url, json=payload, timeout=3)
+            print(f"PATCH -> Status Code: {resp.status_code}")
 
         except KeyboardInterrupt:
-            print("Exit by user")
+            print("\nExiting program...")
             break
-        except requests.exceptions.ConnectionError:
-            print("Error: Spring Server 연결 실패 (localhost:8080)")
-            time.sleep(3)
+        except serial.SerialException as e:
+            print(f"Serial Error: {e}. Reconnecting in 5 seconds...")
+            ser.close()
+            time.sleep(5)
+            try:
+                ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+                print(f"Reopened {SERIAL_PORT}")
+            except serial.SerialException:
+                print("Failed to reopen serial port.")
+        except requests.exceptions.RequestException as e:
+            print(f"HTTP Request Error: {e}")
+            time.sleep(1)
         except Exception as e:
-            print("Error:", e)
+            print("General Error:", e)
             time.sleep(1)
 
 if __name__ == "__main__":
