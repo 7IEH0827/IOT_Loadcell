@@ -1,28 +1,47 @@
-#ifndef __HX711_H
-#define __HX711_H
+/*
+ * hx711.h
+ *
+ *  Created on: Nov 8, 2025
+ *      Author: kimjim1n
+ */
+
+#ifndef __HX711_H__
+#define __HX711_H__
+
 #include "stm32f4xx_hal.h"
 
-// GPIO 핀 정의는 main.c 또는 여기에 포함된 헤더 파일에 맞게 조정
-#define HX711_SCK_GPIO_Port GPIOB
-#define HX711_SCK_Pin GPIO_PIN_10
-#define HX711_DT_GPIO_Port GPIOB
-#define HX711_DT_Pin GPIO_PIN_11
+// 보통 128 GAIN, A채널만 씀.
+#define HX711_GAIN_128  128
+#define HX711_GAIN_64   64
+#define HX711_GAIN_32   32
 
 typedef struct {
-    GPIO_TypeDef* SCK_Port;
-    uint16_t SCK_Pin;
-    GPIO_TypeDef* DT_Port;
-    uint16_t DT_Pin;
-    long offset;
-    float scale;
-} HX711_Handle;
+    GPIO_TypeDef *dout_port;
+    uint16_t      dout_pin;
 
-// 모든 필요한 함수 선언: Init, Read, Read_Average, Tare, Set_Scale, Get_Value
-void HX711_Init(HX711_Handle* hx711, GPIO_TypeDef* sckPort, uint16_t sckPin, GPIO_TypeDef* dtPort, uint16_t dtPin);
-long HX711_Read(HX711_Handle* hx711);
-long HX711_Read_Average(HX711_Handle* hx711, uint8_t times);
-void HX711_Tare(HX711_Handle* hx711, uint8_t times);
-void HX711_Set_Scale(HX711_Handle* hx711, float scale);
-float HX711_Get_Value(HX711_Handle* hx711, uint8_t times);
+    GPIO_TypeDef *sck_port;
+    uint16_t      sck_pin;
 
-#endif
+    uint8_t       gain;     // 128 / 64 / 32
+
+    int32_t       offset;   // 영점(offset) 값
+    float         scale;    // (raw - offset) / scale = g(그램)
+} HX711_t;
+
+// 초기화: DWT 타이머 셋업 + 핀 정보 저장
+void HX711_Init(HX711_t *hx,
+                GPIO_TypeDef *dout_port, uint16_t dout_pin,
+                GPIO_TypeDef *sck_port,  uint16_t sck_pin,
+                uint8_t gain);
+
+// raw 24bit 값 읽기
+int32_t HX711_ReadRaw(HX711_t *hx);
+
+// 영점 조절, 여러 번 읽어서 평균 & offset 저장/리턴
+int32_t HX711_Tare(HX711_t *hx, uint8_t times);
+
+// 현재 무게(g) (scale 값 보정 이후 사용 가)
+float HX711_GetWeight(HX711_t *hx, uint8_t times);
+
+#endif /* __HX711_H__ */
+

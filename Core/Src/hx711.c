@@ -1,83 +1,143 @@
 #include "hx711.h"
-#include <math.h> // fabs() 함수 사용을 위해 포함 (main.c에서 사용됨)
 
-// SCK 핀을 낮춤 (RESET)
-#define HX711_SCK_LOW(handle)   HAL_GPIO_WritePin(handle->SCK_Port, handle->SCK_Pin, GPIO_PIN_RESET)
-// SCK 핀을 높임 (SET)
-#define HX711_SCK_HIGH(handle)  HAL_GPIO_WritePin(handle->SCK_Port, handle->SCK_Pin, GPIO_PIN_SET)
-// DT 핀의 상태를 읽음
-#define HX711_DT_READ(handle)   HAL_GPIO_ReadPin(handle->DT_Port, handle->DT_Pin)
+// 내부용 DWT us 딜레이
+static void HX711_DWT_Delay_Init(void);
+static void HX711_DWT_Delay_us(uint32_t us);
 
-// 타이밍 문제 해결을 위한 최소 지연 함수
-static inline void HX711_Delay_us(uint32_t us) {
-    for (volatile uint32_t i = 0; i < (us * 10); i++) { __NOP(); }
+// 내부 유틸
+static inline uint8_t HX711_IsReady(HX711_t *hx) {
+    return (HAL_GPIO_ReadPin(hx->dout_port, hx->dout_pin) == GPIO_PIN_RESET);
 }
 
-void HX711_Init(HX711_Handle* hx711, GPIO_TypeDef* sckPort, uint16_t sckPin, GPIO_TypeDef* dtPort, uint16_t dtPin) {
-    hx711->SCK_Port = sckPort;
-    hx711->SCK_Pin = sckPin;
-    hx711->DT_Port = dtPort;
-    hx711->DT_Pin = dtPin;
-    hx711->offset = 0;
-    hx711->scale = 1.0f;
-    HX711_SCK_LOW(hx711);
+
+void HX711_Init(HX711_t *hx,
+                GPIO_TypeDef *dout_port, uint16_t dout_pin,
+                GPIO_TypeDef *sck_port,  uint16_t sck_pin,
+                uint8_t gain)
+{
+    hx->dout_port = dout_port;
+    hx->dout_pin  = dout_pin;
+    hx->sck_port  = sck_port;
+    hx->sck_pin   = sck_pin;
+    hx->gain      = gain;
+    hx->offset    = 0;
+    hx->scale     = 1.0f;
+
+    // SCK default = LOW
+    HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_RESET);
+
+    HX711_DWT_Delay_Init();
+
+    // 전원 인가 직후 안정화
+    HAL_Delay(100);
 }
 
-void HX711_WaitUntilReady(HX711_Handle* hx711) {
-    uint32_t timeout = HAL_GetTick() + 1000;
-    while (HX711_DT_READ(hx711) == GPIO_PIN_SET) {
-        if (HAL_GetTick() >= timeout) {
-            break;
+// 24bit 데이터 읽기
+int32_t HX711_ReadRaw(HX711_t *hx)
+{
+    uint32_t data = 0;
+
+    // 데이터 준비 대기 (최대 200ms)
+    uint32_t timeout = HAL_GetTick() + 200;
+    while (!HX711_IsReady(hx)) {
+
+    	// 타임아웃 에러 처
+        if (HAL_GetTick() > timeout) {
+            return 0;
         }
     }
-}
 
-long HX711_Read(HX711_Handle* hx711) {
-    long data = 0;
-
-    HX711_WaitUntilReady(hx711);
+    __disable_irq();
 
     for (int i = 0; i < 24; i++) {
-        HX711_SCK_HIGH(hx711);
-        HX711_Delay_us(1);
+        // SCK HIGH
+        HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_SET);
+        HX711_DWT_Delay_us(5);
 
-        data = data << 1;
+        data <<= 1;
 
-        HX711_SCK_LOW(hx711);
-        HX711_Delay_us(1);
+        // SCK LOW
+        HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_RESET);
+        HX711_DWT_Delay_us(5);
 
-        if (HX711_DT_READ(hx711) == GPIO_PIN_SET) {
-            data++;
+        if (HAL_GPIO_ReadPin(hx->dout_port, hx->dout_pin) == GPIO_PIN_SET) {
+            data |= 1;
         }
     }
 
-    HX711_SCK_HIGH(hx711);
-    HX711_SCK_LOW(hx711);
+    // GAIN 추가 클
+    int extra_pulses = 1;
+    if (hx->gain == HX711_GAIN_128)      extra_pulses = 1; // A,128
+    else if (hx->gain == HX711_GAIN_32)  extra_pulses = 2; // B,32
+    else if (hx->gain == HX711_GAIN_64)  extra_pulses = 3; // A,64
 
+    for (int i = 0; i < extra_pulses; i++) {
+        HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_SET);
+        HX711_DWT_Delay_us(5);
+        HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_RESET);
+        HX711_DWT_Delay_us(5);
+    }
+
+    __enable_irq();
+
+    // 부호 확장 (24bit → 32bit)
     if (data & 0x800000) {
-        data |= (long)0xFF000000;
+        data |= 0xFF000000;
     }
 
-    return data;
+    return (int32_t)data;
 }
 
-long HX711_Read_Average(HX711_Handle* hx711, uint8_t times) {
-    long sum = 0;
+// 영점 잡기: 여러 번 읽어서 평균값을 offset으로 두기
+int32_t HX711_Tare(HX711_t *hx, uint8_t times)
+{
+    if (times == 0) times = 1;
+
+    int64_t sum = 0;
     for (uint8_t i = 0; i < times; i++) {
-        sum += HX711_Read(hx711);
+        sum += HX711_ReadRaw(hx);
+        HAL_Delay(10); // 영점 잡을 때 여유값
     }
-    return sum / times;
+    hx->offset = (int32_t)(sum / times);
+    return hx->offset;
 }
 
-void HX711_Set_Scale(HX711_Handle* hx711, float scale) {
-    hx711->scale = scale;
+// 현재 무게 g 리턴 (평균)
+float HX711_GetWeight(HX711_t *hx, uint8_t times)
+{
+    if (times == 0) times = 1;
+    int64_t sum = 0;
+
+    for (uint8_t i = 0; i < times; i++) {
+        int32_t raw = HX711_ReadRaw(hx);
+        sum += raw;
+        HAL_Delay(10);
+    }
+
+    int32_t avg = (int32_t)(sum / times);
+    int32_t net = avg - hx->offset;
+
+    if (hx->scale == 0.0f) {
+        return 0.0f;
+    }
+    return (float)net / hx->scale;
 }
 
-void HX711_Tare(HX711_Handle* hx711, uint8_t times) {
-    hx711->offset = HX711_Read_Average(hx711, times);
+
+// DWT 기반 us 딜레이
+static void HX711_DWT_Delay_Init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
-float HX711_Get_Value(HX711_Handle* hx711, uint8_t times) {
-    long raw_data = HX711_Read_Average(hx711, times);
-    return (float)(raw_data - hx711->offset) / hx711->scale;
+static void HX711_DWT_Delay_us(uint32_t us)
+{
+    uint32_t cycles = (HAL_RCC_GetHCLKFreq() / 1000000) * us;
+    uint32_t start = DWT->CYCCNT;
+    while ((DWT->CYCCNT - start) < cycles) {
+        __NOP();
+    }
 }
+
