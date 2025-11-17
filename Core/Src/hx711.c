@@ -52,13 +52,13 @@ int32_t HX711_ReadRaw(HX711_t *hx)
     for (int i = 0; i < 24; i++) {
         // SCK HIGH
         HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_SET);
-        HX711_DWT_Delay_us(5);
+        HX711_DWT_Delay_us(1);
 
         data <<= 1;
 
         // SCK LOW
         HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_RESET);
-        HX711_DWT_Delay_us(5);
+        HX711_DWT_Delay_us(1);
 
         if (HAL_GPIO_ReadPin(hx->dout_port, hx->dout_pin) == GPIO_PIN_SET) {
             data |= 1;
@@ -73,9 +73,9 @@ int32_t HX711_ReadRaw(HX711_t *hx)
 
     for (int i = 0; i < extra_pulses; i++) {
         HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_SET);
-        HX711_DWT_Delay_us(5);
+        HX711_DWT_Delay_us(1);
         HAL_GPIO_WritePin(hx->sck_port, hx->sck_pin, GPIO_PIN_RESET);
-        HX711_DWT_Delay_us(5);
+        HX711_DWT_Delay_us(1);
     }
 
     __enable_irq();
@@ -140,4 +140,3 @@ static void HX711_DWT_Delay_us(uint32_t us)
         __NOP();
     }
 }
-

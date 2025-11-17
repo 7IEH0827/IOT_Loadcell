@@ -71,10 +71,6 @@ void Error_Handler(void);
 #define TCK_GPIO_Port GPIOA
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
-#define HX711_SCK_Pin GPIO_PIN_4
-#define HX711_SCK_GPIO_Port GPIOB
-#define HX711_DOUT_Pin GPIO_PIN_5
-#define HX711_DOUT_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

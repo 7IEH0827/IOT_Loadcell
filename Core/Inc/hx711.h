@@ -1,12 +1,5 @@
-/*
- * hx711.h
- *
- *  Created on: Nov 8, 2025
- *      Author: kimjim1n
- */
-
-#ifndef __HX711_H__
-#define __HX711_H__
+#ifndef INC_HX711_H_
+#define INC_HX711_H_
 
 #include "stm32f4xx_hal.h"
 
@@ -40,8 +33,8 @@ int32_t HX711_ReadRaw(HX711_t *hx);
 // 영점 조절, 여러 번 읽어서 평균 & offset 저장/리턴
 int32_t HX711_Tare(HX711_t *hx, uint8_t times);
 
-// 현재 무게(g) (scale 값 보정 이후 사용 가)
+// 현재 무게(g) (scale 값 보정 이후 사용 가능)
 float HX711_GetWeight(HX711_t *hx, uint8_t times);
 
-#endif /* __HX711_H__ */
 
+#endif /* INC_HX711_H_ */
