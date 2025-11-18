@@ -241,8 +241,8 @@ while True:
                             request_sonic(data)
 
                         # IR 센서 값일 경우
-                        if 'distanceCm' in data:
-                            request_(data)
+                        if 'beamBlocked' in data:
+                            request_IR(data)
 
                     except json.JSONDecodeError as e:
                         print(f"[ERROR] JSON Parse Error: {e}")
