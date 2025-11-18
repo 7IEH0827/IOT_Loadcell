@@ -5,8 +5,9 @@ import time
 
 SERIAL_PORT = 'COM6'
 BAUD_RATE   = 115200
-SPRING_BASE_URL = 'http://localhost:8080/api/sensors/cups'
-# BIN_ID = 2
+BASE_URL = 'http://localhost:8080/api/sensor/cup'
+BIN_ID = 1
+UUID_TO_SEND = None
 
 def parse_json_line(line: str):
     """
@@ -47,6 +48,11 @@ def main():
                 print("Error: Invalid JSON format received.")
                 continue
             
+            # JSON 데이터에서 "uuid"를 추출
+            if "uuid" in data:
+                global UUID_TO_SEND
+                UUID_TO_SEND = data.get("uuid")
+
             # JSON 데이터에서 "weight"를 추출
             weight = data.get("weight")
 
@@ -55,12 +61,14 @@ def main():
                 print(f"Skipping (weight <= 0 or missing): {weight}")
                 continue
 
-            # STM32에서 받은 데이터에 isLiquid = true 필드를 추가하여 payload 구성
-            data['isLiquid'] = True 
-            payload = data # 이제 payload는 {"weight": X, "isLiquid": true} 형태
-
-            url = SPRING_BASE_URL
+            url = BASE_URL
             
+            payload = {
+                "uuid": UUID_TO_SEND,
+                "binId": BIN_ID,
+                "weight": weight
+            }
+
             # 물통 무게 업데이트
             # STM32에서 받은 JSON 데이터 (data)를 그대로 payload로 사용
             resp = requests.patch(url, json=payload, timeout=3)
