@@ -174,14 +174,23 @@ def request_Cup(data):
     print(f"PATCH -> Status Code: {resp.status_code}")
 
 def request_Liquid(data):
+    if "uuid" in data:
+        global UUID_TO_SEND
+        UUID_TO_SEND = data.get("uuid")
+
     weight = data.get("weight_liquid")
     if weight <= 0:
-        return 0
+        return
 
     url = f"{BASE_URL_LIQUID}/by-bin/{BIN_ID}"
 
+    payload = {
+        "weight": weight,
+        "uuid": UUID_TO_SEND,
+    }
+
     # 물통 무게 업데이트
-    resp = requests.patch(url, json=data, timeout=3)
+    resp = requests.patch(url, json=payload, timeout=3)
     print("PATCH ->", resp.status_code)
 
 def request_IR(data):
