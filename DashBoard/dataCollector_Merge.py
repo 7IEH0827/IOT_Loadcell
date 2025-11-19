@@ -41,7 +41,6 @@ BASE_URL_SONIC = "http://localhost:8080/api/sensor/ultrasonic"
 BASE_URL_IR = "http://localhost:8080/api/sensor/ir/events"
 
 BIN_ID = 2
-UUID_TO_SEND = None
 LIVE_UUID = "LIVE"   # 실시간 채움률용 고정 UUID 
 TIMEOUT   = 1
 
@@ -149,12 +148,12 @@ def request_sonic(data):
         print("[ERROR]", e)
 
 def request_Cup(data):
-    if "uuid" in data:
-        global UUID_TO_SEND
-        UUID_TO_SEND = data.get("uuid")
+    UUID_TO_SEND = data.get("uuid")
 
     # JSON 데이터에서 컵의 "weight"를 추출
-    weight = data.get("weight_cup")
+    weight = data.get("weight")
+    # JSON 데이터에서 컵의 "type"을 추출
+    Cup_type = data.get("type")
 
     # weight 필드가 없거나 0 이하인 경우 처리 방지
     if weight is None or weight <= 0:
@@ -166,7 +165,8 @@ def request_Cup(data):
     payload = {
         "uuid": UUID_TO_SEND,
         "binId": BIN_ID,
-        "weight": weight
+        "weight": weight,
+        "type": Cup_type
     }
 
     # STM32에서 받은 JSON 데이터 (data)를 그대로 payload로 사용
@@ -174,19 +174,21 @@ def request_Cup(data):
     print(f"PATCH -> Status Code: {resp.status_code}")
 
 def request_Liquid(data):
-    if "uuid" in data:
-        global UUID_TO_SEND
-        UUID_TO_SEND = data.get("uuid")
+    UUID_TO_SEND = data.get("uuid")
 
-    weight = data.get("weight_liquid")
+    # JSON 데이터에서 컵의 "weight"를 추출
+    weight = data.get("weight")
     if weight <= 0:
         return
+    # JSON 데이터에서 컵의 "type"을 추출
+    Liquid_type = data.get("type")
 
     url = f"{BASE_URL_LIQUID}/by-bin/{BIN_ID}"
 
     payload = {
         "weight": weight,
         "uuid": UUID_TO_SEND,
+        "type": Liquid_type
     }
 
     # 물통 무게 업데이트
@@ -238,11 +240,11 @@ while True:
                             request_Laser(data)
 
                         # 로드셀(컵) 센서 값일 경우
-                        if 'weight_cup' in data:
+                        if 'type' in data and data['type'] == 'CUP':
                             request_Cup(data)
 
                         # 로드셀(물통) 센서 값일 경우
-                        if 'weight_liquid' in data:
+                        if 'type' in data and data['type'] == 'WATER':
                             request_Liquid(data)
 
                         # 초음파 센서 값일 경우
