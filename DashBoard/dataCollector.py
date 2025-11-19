@@ -126,7 +126,7 @@ def request_sonic(data):
 
         resp = requests.post(
             BASE_URL_SONIC,
-            json=data,
+            json=payload,
             headers={"Content-Type": "application/json"},
             timeout=5,
         )
